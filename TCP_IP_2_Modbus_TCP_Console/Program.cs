@@ -10,6 +10,9 @@ namespace TCP_IP_2_Modbus_TCP_Console
     {
         private static ModbusServer ModbusServer;
         const int PORT = 8080;
+        const int START_READ_SETTING_SERVER = 1;
+        
+        static byte connection_num = 0;
 
         //private static bool shouldStop { get; set; } = false;
         private static volatile bool _shouldStop = false;
@@ -42,8 +45,8 @@ namespace TCP_IP_2_Modbus_TCP_Console
             else
             {
                 // Get connection number from users
-                Console.WriteLine("Number of connection:");
-                int connection_num = (int.TryParse(Console.ReadLine(), out int num) ? num : 0);
+                Console.WriteLine($"Number of connection: {connection_num}");
+                //int connection_num = (int.TryParse(Console.ReadLine(), out int num) ? num : 0);
 
 
                 // Wait for user to press Enter
@@ -77,12 +80,14 @@ namespace TCP_IP_2_Modbus_TCP_Console
                     Console.WriteLine($"Thread {i + 1} joined.");
                 }
             }
-            
-            // Wait for user to press a key
-            Console.WriteLine("Press any key to stop...");
-            Console.ReadKey();
 
             Console.WriteLine("All threads stopped.");
+
+            // Wait for user to press a key
+            Console.WriteLine("Press any key to close program");
+            Console.ReadKey();
+
+            
         }
 
         private static void InitializeModbusServer()
@@ -418,8 +423,10 @@ namespace TCP_IP_2_Modbus_TCP_Console
             {
                 string[] lines = File.ReadAllLines(filePath);
 
+                connection_num = (byte.TryParse(lines[0], out byte num)) ? num : (byte)0;
+
                 NetworkObject[] networkObjects = new NetworkObject[lines.Length];
-                for (int i = 0; i < lines.Length; i++)
+                for (int i = START_READ_SETTING_SERVER; i < lines.Length; i++)
                 {
                     var parts = lines[i].Split(' ');
                     if (parts.Length == 3 && int.TryParse(parts[2], out int port))
@@ -432,6 +439,8 @@ namespace TCP_IP_2_Modbus_TCP_Console
                         Console.WriteLine($"Invalid line format: '{lines[i]}'. Expected 'IP PORT'.");
                     }
                 }
+
+                networkObjects = networkObjects.Where(n => n != null).ToArray();
 
                 return networkObjects;
             }
