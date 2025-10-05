@@ -4,19 +4,18 @@
     {
         static void Main(string[] args)
         {
-            string appPath = AppDomain.CurrentDomain.BaseDirectory.Trim('\\');
+            TestRun();
 
-            //string settingPath = @"D:\Project\Ajinomoto\Box_Project\Middleware_ModbusTCP_App\NetworkServer.txt";
-            //string settingPath = backwardDirectory(appPath, 3) + @"\NetworkServer.txt";
+        }
 
+        static void TestRun()
+        {
+            string datas = "2 32 32 42 48 50 49 51 57 49 46 53 51 71 3";
+            string[] dataArray = datas.Split(" ");
+            byte[] byteArray = dataArray.Select(x => byte.Parse(x)).ToArray();
 
-            Console.WriteLine($"App Path: {appPath}");
-            //ReadFileLines(settingPath);
-
-            Console.WriteLine("Press some key to end precess");
-            Console.ReadLine();
-
-
+            // Print bytes
+            Console.WriteLine(string.Join(", ", byteArray[3..10]));
         }
 
         public static void ReadFileLines(string filePath)

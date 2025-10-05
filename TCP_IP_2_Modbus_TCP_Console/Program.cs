@@ -196,6 +196,8 @@ namespace TCP_IP_2_Modbus_TCP_Console
             return threads;
         }
         #endregion
+
+        #region Thread Method
         static void ThreadMethod(ModbusServer modbusServer, TcpClient client, NetworkObject networkObject, int connection_num)
         {
             string serverIP = networkObject.IPAddress;
@@ -367,6 +369,28 @@ namespace TCP_IP_2_Modbus_TCP_Console
                 Console.WriteLine("Error: " + ex.Message);
             }
         }
+        #endregion
+
+        #region Data Processing
+
+        static byte[] getSpecificData(byte[] rawData, int startByte, int byteAmount)
+        {
+            return rawData[startByte..(startByte + byteAmount)];
+        }
+
+        static string getWeightData(byte[] rawData)
+        {
+            byte[] weightByte = getSpecificData(rawData, 153, 12);
+            string weightString = Encoding.UTF8.GetString(weightByte).Trim();
+            return weightString;
+        }
+
+        static string getCountData(byte[] rawData)
+        {
+            byte[] countByte = getSpecificData(rawData, 100, 6);
+            string countString = Encoding.UTF8.GetString(countByte).Trim();
+            return countString;
+        }
 
         static string getWeightData(string res)
         {
@@ -414,13 +438,28 @@ namespace TCP_IP_2_Modbus_TCP_Console
             }
         }
 
+        static void RegisterWeightToModbusServer_2(ModbusServer modbusServer, string weightData, int connection_num)
+        {
+            int offsetAddress = connection_num - 1;
+            //RegisterDataToHoldingModbusServer(modbusServer, (short)weightData, ADDRESS_PER_CONNECTION * offsetAddress + 1);
+        }
+
         static void RegisterConnectedToModbusServer(ModbusServer modbusServer, int status, int connection_num)
         {
             int offsetAddress = connection_num - 1;
-            ModbusServer.HoldingRegisters reg = modbusServer.holdingRegisters;
-            reg[ADDRESS_PER_CONNECTION * offsetAddress + 3] = (short)status;
+            RegisterDataToHoldingModbusServer(modbusServer, (short)status, ADDRESS_PER_CONNECTION * offsetAddress + 3);
         }
 
+        static void RegisterDataToHoldingModbusServer(ModbusServer modbusServer, short data, int register)
+        {
+            ModbusServer.HoldingRegisters reg = modbusServer.holdingRegisters;
+            reg[register] = data;
+        }
+
+        #endregion
+
+
+        #region Network Settings
         static NetworkObject[] ReadNetworkObjectArray(string filePath)
         {
             try
@@ -498,5 +537,7 @@ namespace TCP_IP_2_Modbus_TCP_Console
             public string IPAddress { get; set; }
             public int Port { get; set; }
         }
+
+        #endregion
     }
 }
