@@ -1,5 +1,7 @@
 ﻿using EasyModbus;
+using Microsoft.Win32;
 using System;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -13,6 +15,8 @@ namespace TCP_IP_2_Modbus_TCP_Console
         
         const int START_READ_SETTING_SERVER = 2;
         const int ADDRESS_PER_CONNECTION = 10;
+        const short OK = 1;
+        const int NG = 0;
 
         static string settingFilePath = AppDomain.CurrentDomain.BaseDirectory.Trim('\\') + @"\NetworkServer.txt";
         static byte connection_num = 0;
@@ -220,44 +224,30 @@ namespace TCP_IP_2_Modbus_TCP_Console
                         // Update connection status to Modbus Server
                         RegisterConnectedToModbusServer(modbusServer, 1, connection_num);
 
-                        // Send data to server
-                        byte[] messageBytes = Encoding.UTF8.GetBytes(""); // Send empty message to trigger response
-                        stream.Write(messageBytes, 0, messageBytes.Length);
+                        
+                        string[] receiveData = getWeightDataAndJudge(stream, serverIP);
 
-                        // Receive response from server
-                        byte[] buffer = new byte[1024];
-                        int bytesRead = stream.Read(buffer, 0, buffer.Length);
-
-                        // Show raw buffer as hex (for debugging)
-                        string bytesAsString = BitConverter.ToString(buffer, 0, bytesRead).Replace("-", " ");
-                        Console.WriteLine($"Buffer as hex: {bytesAsString}");
-                        Console.WriteLine($"Received {bytesRead} bytes from server.");
-
-                        // Check for disconnection
-                        if (bytesRead == 0)
-                        {
-                            Console.WriteLine("No data received, closing connection.");
-                            break;
-                        }
-
-                        // Trim STX (0x02) and ETX (0x03) and get clean data bytes
-                        byte[] cleanData = getCleanDataBytes(buffer, bytesRead);
-
-                        // Convert clean data to string
-                        string response = Encoding.UTF8.GetString(cleanData);
-                        Console.WriteLine($"{serverIP} response: " + response);
+                        string weightData = receiveData[0];
+                        string judgeData = receiveData[1];
 
                         // Register weight data to Modbus Server
-                        string weightData = getWeightData(response);
-
-                        // Register weight data to Modbus Server
-                        if (weightData != "")
+                        if (weightData != "stop")
                         {
+                            if (weightData == "continue") {
+                                Console.WriteLine("Receive unformat data");                  
+                                continue;
+                            }
                             RegisterWeightToModbusServer(modbusServer, weightData, connection_num);
+                            RegisterJudgementToModbusServer(modbusServer, judgeData, connection_num);
+                            Console.WriteLine("--------------------------------------------");
                         }
                         else
                         {
-                            Console.WriteLine("Receive data incorrect");
+                            if (client.Connected)
+                            {
+                                client.Close();
+                                Console.WriteLine("Connection closed.");
+                            }
                         }
                     }
                 }
@@ -378,11 +368,63 @@ namespace TCP_IP_2_Modbus_TCP_Console
             return rawData[startByte..(startByte + byteAmount)];
         }
 
-        static string getWeightData(byte[] rawData)
+        static string[] getWeightDataAndJudge(NetworkStream stream, string serverIP)
         {
-            byte[] weightByte = getSpecificData(rawData, 153, 12);
-            string weightString = Encoding.UTF8.GetString(weightByte).Trim();
-            return weightString;
+            // Send data to server
+            byte[] messageBytes = Encoding.UTF8.GetBytes(""); // Send empty message to trigger response
+            stream.Write(messageBytes, 0, messageBytes.Length);
+
+            // Receive response from server
+            byte[] buffer = new byte[1024];
+            int bytesRead = stream.Read(buffer, 0, buffer.Length);
+
+            // Show raw buffer as hex (for debugging)
+            string bytesAsString = BitConverter.ToString(buffer, 0, bytesRead).Replace("-", " ");
+            Console.WriteLine($"Buffer as hex: {bytesAsString}");
+            Console.WriteLine($"Received {bytesRead} bytes from server.");
+
+            // Declare Result
+            string weightData = "";
+            string judgeData = "";
+
+            // Check for disconnection
+            if (bytesRead == 0)
+            {
+                Console.WriteLine("No data received, closing connection.");
+                weightData =  "stop";
+            }
+
+            // Trim STX (0x02) and ETX (0x03) and get clean data bytes
+            byte[] cleanData = getCleanDataBytes(buffer, bytesRead);
+
+            // Convert clean data to string
+            string response = Encoding.UTF8.GetString(cleanData);
+            string[] responseArray = response.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).ToArray();
+
+            Console.WriteLine("");
+            Console.WriteLine($"{serverIP} response: " + response);
+            for (int i = 0; i < responseArray.Length; i++)
+            {
+                Console.WriteLine($"Index {i}: {responseArray[i]}");
+            }
+
+
+            // Register weight data to Modbus Server
+            //string weightData = getWeightData(response);
+
+            if (responseArray.Length < 7)
+            {
+                Console.WriteLine("Received data is incomplete.");
+                Console.WriteLine("--------------------------------------------");
+                weightData = "continue";
+            }
+            else
+            {
+                weightData = responseArray[6];
+                judgeData = responseArray[5];
+            }
+
+            return [weightData, judgeData];
         }
 
         static string getCountData(byte[] rawData)
@@ -427,10 +469,10 @@ namespace TCP_IP_2_Modbus_TCP_Console
             {
                 // Register the weight data to Modbus server at the specified address
                 ModbusServer.HoldingRegisters reg = modbusServer.holdingRegisters; // Uncomment and use actual Modbus server instance
-                reg[ADDRESS_PER_CONNECTION * offsetAddress + 1] = weightInt; // Store weight at address corresponding to connection number
-                reg[ADDRESS_PER_CONNECTION * offsetAddress + 2] = weightFloat;
-                Console.WriteLine($"Registered weight {weightInt} at Modbus address {ADDRESS_PER_CONNECTION * offsetAddress + 1}");
-                Console.WriteLine($"Registered weight {weightFloat} at Modbus address {ADDRESS_PER_CONNECTION * offsetAddress + 2}");
+                reg[ADDRESS_PER_CONNECTION * offsetAddress + 2] = weightInt; // Store weight at address corresponding to connection number
+                reg[ADDRESS_PER_CONNECTION * offsetAddress + 3] = weightFloat;
+                Console.WriteLine($"Registered weight {weightInt} at Modbus address {ADDRESS_PER_CONNECTION * offsetAddress + 2}");
+                Console.WriteLine($"Registered weight {weightFloat} at Modbus address {ADDRESS_PER_CONNECTION * offsetAddress + 3}");
             }
             else
             {
@@ -447,7 +489,20 @@ namespace TCP_IP_2_Modbus_TCP_Console
         static void RegisterConnectedToModbusServer(ModbusServer modbusServer, int status, int connection_num)
         {
             int offsetAddress = connection_num - 1;
-            RegisterDataToHoldingModbusServer(modbusServer, (short)status, ADDRESS_PER_CONNECTION * offsetAddress + 3);
+            RegisterDataToHoldingModbusServer(modbusServer, (short)status, ADDRESS_PER_CONNECTION * offsetAddress + 1);
+        }
+
+        static void RegisterJudgementToModbusServer(ModbusServer modbusServer, string judge, int connection_num)
+        {
+            int offsetAddress = connection_num - 1;
+            if (judge == "2")
+            {
+                RegisterDataToHoldingModbusServer(modbusServer, OK, ADDRESS_PER_CONNECTION * offsetAddress + 4);
+            }
+            else
+            {
+                RegisterDataToHoldingModbusServer(modbusServer, NG, ADDRESS_PER_CONNECTION * offsetAddress + 4);
+            }
         }
 
         static void RegisterDataToHoldingModbusServer(ModbusServer modbusServer, short data, int register)
@@ -455,6 +510,7 @@ namespace TCP_IP_2_Modbus_TCP_Console
             ModbusServer.HoldingRegisters reg = modbusServer.holdingRegisters;
             reg[register] = data;
         }
+
 
         #endregion
 
