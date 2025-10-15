@@ -412,7 +412,7 @@ namespace TCP_IP_2_Modbus_TCP_Console
             // Register weight data to Modbus Server
             //string weightData = getWeightData(response);
 
-            if (responseArray.Length < 7)
+            if ( 0 < responseArray.Length && responseArray.Length < 7)
             {
                 Console.WriteLine("Received data is incomplete.");
                 Console.WriteLine("--------------------------------------------");
