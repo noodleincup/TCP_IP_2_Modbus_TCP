@@ -225,10 +225,13 @@ namespace TCP_IP_2_Modbus_TCP_Console
                         RegisterConnectedToModbusServer(modbusServer, 1, connection_num);
 
                         
-                        string[] receiveData = getWeightDataAndJudge(stream, serverIP);
+                        string[] receiveData = getTargetData(stream, serverIP);
 
-                        string weightData = receiveData[0];
-                        string judgeData = receiveData[1];
+                        string numberData = receiveData[0];
+                        string weightData = receiveData[1];
+                        string judgeData = receiveData[2];
+                        string menralJudgeData = receiveData[3];
+                        
 
                         // Register weight data to Modbus Server
                         if (weightData != "stop")
@@ -237,8 +240,12 @@ namespace TCP_IP_2_Modbus_TCP_Console
                                 Console.WriteLine("Receive unformat data");                  
                                 continue;
                             }
+
+                            RegisterSequenceNumberToModbusServer(modbusServer, numberData, connection_num);
                             RegisterWeightToModbusServer(modbusServer, weightData, connection_num);
                             RegisterJudgementToModbusServer(modbusServer, judgeData, connection_num);
+                            RegisterNGmentalToModbusServer(modbusServer, menralJudgeData, connection_num);
+
                             Console.WriteLine("--------------------------------------------");
                         }
                         else
@@ -368,7 +375,7 @@ namespace TCP_IP_2_Modbus_TCP_Console
             return rawData[startByte..(startByte + byteAmount)];
         }
 
-        static string[] getWeightDataAndJudge(NetworkStream stream, string serverIP)
+        static string[] getTargetData(NetworkStream stream, string serverIP)
         {
             // Send data to server
             byte[] messageBytes = Encoding.UTF8.GetBytes(""); // Send empty message to trigger response
@@ -386,6 +393,8 @@ namespace TCP_IP_2_Modbus_TCP_Console
             // Declare Result
             string weightData = "";
             string judgeData = "";
+            string numberData = "";
+            string mentalJudgeData = "";
 
             // Check for disconnection
             if (bytesRead == 0)
@@ -420,11 +429,13 @@ namespace TCP_IP_2_Modbus_TCP_Console
             }
             else
             {
+                numberData = responseArray[2];
                 weightData = responseArray[6];
                 judgeData = responseArray[5];
+                mentalJudgeData = responseArray[4];
             }
 
-            return [weightData, judgeData];
+            return [numberData, weightData, judgeData, mentalJudgeData];
         }
 
         static string getCountData(byte[] rawData)
@@ -460,25 +471,7 @@ namespace TCP_IP_2_Modbus_TCP_Console
             return cleanData;
         }
 
-        static void RegisterWeightToModbusServer(ModbusServer modbusServer, string weightData, int connection_num)
-        {
-            // Convert weight data to integer (assuming it's a valid number)
-            var parts = weightData.Split(".");
-            int offsetAddress = connection_num - 1;
-            if (short.TryParse(parts[0], out short weightInt) && short.TryParse(parts[1], out short weightFloat))
-            {
-                // Register the weight data to Modbus server at the specified address
-                ModbusServer.HoldingRegisters reg = modbusServer.holdingRegisters; // Uncomment and use actual Modbus server instance
-                reg[ADDRESS_PER_CONNECTION * offsetAddress + 2] = weightInt; // Store weight at address corresponding to connection number
-                reg[ADDRESS_PER_CONNECTION * offsetAddress + 3] = weightFloat;
-                Console.WriteLine($"Registered weight {weightInt} at Modbus address {ADDRESS_PER_CONNECTION * offsetAddress + 2}");
-                Console.WriteLine($"Registered weight {weightFloat} at Modbus address {ADDRESS_PER_CONNECTION * offsetAddress + 3}");
-            }
-            else
-            {
-                Console.WriteLine("Invalid weight data: " + weightData);
-            }
-        }
+        
 
         static void RegisterWeightToModbusServer_2(ModbusServer modbusServer, string weightData, int connection_num)
         {
@@ -486,10 +479,65 @@ namespace TCP_IP_2_Modbus_TCP_Console
             //RegisterDataToHoldingModbusServer(modbusServer, (short)weightData, ADDRESS_PER_CONNECTION * offsetAddress + 1);
         }
 
+        static void RegisterGeneral(ModbusServer modbusServer, short data, int address, string detail)
+        {
+            RegisterDataToHoldingModbusServer(modbusServer, data, address);
+            Console.WriteLine($"{detail} at Modbus address {address}");
+        }
+
         static void RegisterConnectedToModbusServer(ModbusServer modbusServer, int status, int connection_num)
         {
             int offsetAddress = connection_num - 1;
             RegisterDataToHoldingModbusServer(modbusServer, (short)status, ADDRESS_PER_CONNECTION * offsetAddress + 1);
+            Console.WriteLine($"Connected status {status} at Modbus address {ADDRESS_PER_CONNECTION * offsetAddress + 1}");
+        }
+
+        static void RegisterSequenceNumberToModbusServer(ModbusServer modbusServer, string number, int connection_num)
+        {
+            int offsetAddress = connection_num - 1;
+            if (short.TryParse(number, out short sequenceNumber))
+            {
+                RegisterDataToHoldingModbusServer(modbusServer, sequenceNumber, ADDRESS_PER_CONNECTION * offsetAddress + 2);
+                Console.WriteLine($"Registered sequence number {sequenceNumber} at Modbus address {ADDRESS_PER_CONNECTION * offsetAddress + 2}");
+            }
+            else
+            {
+                Console.WriteLine("Somthing thing wrong at sequence number");
+            }
+        }
+
+        static void RegisterWeightToModbusServer(ModbusServer modbusServer, string weightData, int connection_num)
+        {
+            // Convert weight data to integer (assuming it's a valid number)
+            //var parts = weightData.Split(".");
+            string[] parts = new string[2];
+
+            // Check weight data format
+            if (weightData.Split(".").Length != 2)
+            {
+                parts[0] = weightData;
+                parts[1] = "0"; // Default to 0 if no decimal part
+            }
+            else
+            {
+                parts = weightData.Split(".");
+            }
+
+            int offsetAddress = connection_num - 1;
+
+            if (short.TryParse(parts[0], out short weightInt) && short.TryParse(parts[1], out short weightFloat))
+            {
+                // Register the weight data to Modbus server at the specified address
+                ModbusServer.HoldingRegisters reg = modbusServer.holdingRegisters; // Uncomment and use actual Modbus server instance
+                reg[ADDRESS_PER_CONNECTION * offsetAddress + 3] = weightInt; // Store weight at address corresponding to connection number
+                reg[ADDRESS_PER_CONNECTION * offsetAddress + 4] = weightFloat;
+                Console.WriteLine($"Registered weight {weightInt} at Modbus address {ADDRESS_PER_CONNECTION * offsetAddress + 3}");
+                Console.WriteLine($"Registered weight {weightFloat} at Modbus address {ADDRESS_PER_CONNECTION * offsetAddress + 4}");
+            }
+            else
+            {
+                Console.WriteLine("Invalid weight data: " + weightData);
+            }
         }
 
         static void RegisterJudgementToModbusServer(ModbusServer modbusServer, string judge, int connection_num)
@@ -497,13 +545,32 @@ namespace TCP_IP_2_Modbus_TCP_Console
             int offsetAddress = connection_num - 1;
             if (judge == "2")
             {
-                RegisterDataToHoldingModbusServer(modbusServer, OK, ADDRESS_PER_CONNECTION * offsetAddress + 4);
+                RegisterDataToHoldingModbusServer(modbusServer, OK, ADDRESS_PER_CONNECTION * offsetAddress + 5);
+                Console.WriteLine($"Registered judgement {OK} at Modbus address {ADDRESS_PER_CONNECTION * offsetAddress + 5}");
             }
             else
             {
-                RegisterDataToHoldingModbusServer(modbusServer, NG, ADDRESS_PER_CONNECTION * offsetAddress + 4);
+                RegisterDataToHoldingModbusServer(modbusServer, NG, ADDRESS_PER_CONNECTION * offsetAddress + 5);
+                Console.WriteLine($"Registered judgement {NG} at Modbus address {ADDRESS_PER_CONNECTION * offsetAddress + 5}");
             }
         }
+
+        static void RegisterNGmentalToModbusServer(ModbusServer modbusServer, string mentalData, int connection_num)
+        {
+            int offsetAddress = connection_num - 1;
+            if (mentalData != "0")
+            {
+                RegisterDataToHoldingModbusServer(modbusServer, OK, ADDRESS_PER_CONNECTION * offsetAddress + 6);
+                Console.WriteLine($"Registered mental judgement {OK} at Modbus address {ADDRESS_PER_CONNECTION * offsetAddress + 6}");
+            }
+            else
+            {
+                RegisterDataToHoldingModbusServer(modbusServer, NG, ADDRESS_PER_CONNECTION * offsetAddress + 6);
+                Console.WriteLine($"Registered mental judgement {NG} at Modbus address {ADDRESS_PER_CONNECTION * offsetAddress + 6}");
+            }
+        }
+
+        
 
         static void RegisterDataToHoldingModbusServer(ModbusServer modbusServer, short data, int register)
         {
