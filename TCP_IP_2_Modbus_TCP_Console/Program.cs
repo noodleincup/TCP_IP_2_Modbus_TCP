@@ -17,6 +17,7 @@ namespace TCP_IP_2_Modbus_TCP_Console
         const int ADDRESS_PER_CONNECTION = 10;
         const short OK = 1;
         const int NG = 0;
+        const int SERVER_TIMEOUT = 1 * 1000 * 60; // 1 minutes
 
         static string settingFilePath = AppDomain.CurrentDomain.BaseDirectory.Trim('\\') + @"\NetworkServer.txt";
         static byte connection_num = 0;
@@ -217,6 +218,7 @@ namespace TCP_IP_2_Modbus_TCP_Console
 
                     // Get network stream for communication
                     using NetworkStream stream = client.GetStream();
+                    stream.ReadTimeout = SERVER_TIMEOUT;
 
                     while (!_shouldStop)
                     {
@@ -245,7 +247,6 @@ namespace TCP_IP_2_Modbus_TCP_Console
                             RegisterWeightToModbusServer(modbusServer, weightData, connection_num);
                             RegisterJudgementToModbusServer(modbusServer, judgeData, connection_num);
                             RegisterNGmentalToModbusServer(modbusServer, menralJudgeData, connection_num);
-
                             Console.WriteLine("--------------------------------------------");
                         }
                         else
@@ -254,6 +255,7 @@ namespace TCP_IP_2_Modbus_TCP_Console
                             {
                                 client.Close();
                                 Console.WriteLine("Connection closed.");
+                                Console.WriteLine("--------------------------------------------");
                             }
                         }
                     }
@@ -276,6 +278,7 @@ namespace TCP_IP_2_Modbus_TCP_Console
                     {
                         client.Close();
                         Console.WriteLine("Connection closed.");
+                        Console.WriteLine("--------------------------------------------");
                     }
                 }
 
@@ -377,30 +380,55 @@ namespace TCP_IP_2_Modbus_TCP_Console
 
         static string[] getTargetData(NetworkStream stream, string serverIP)
         {
-            // Send data to server
-            byte[] messageBytes = Encoding.UTF8.GetBytes(""); // Send empty message to trigger response
-            stream.Write(messageBytes, 0, messageBytes.Length);
-
-            // Receive response from server
-            byte[] buffer = new byte[1024];
-            int bytesRead = stream.Read(buffer, 0, buffer.Length);
-
-            // Show raw buffer as hex (for debugging)
-            string bytesAsString = BitConverter.ToString(buffer, 0, bytesRead).Replace("-", " ");
-            Console.WriteLine($"Buffer as hex: {bytesAsString}");
-            Console.WriteLine($"Received {bytesRead} bytes from server.");
-
             // Declare Result
             string weightData = "";
             string judgeData = "";
             string numberData = "";
             string mentalJudgeData = "";
 
+
+            // Send data to server
+            byte[] messageBytes = Encoding.UTF8.GetBytes(""); // Send empty message to trigger response
+            stream.Write(messageBytes, 0, messageBytes.Length);
+
+
+            // Receive response from server
+            byte[] buffer = new byte[1024];
+            int bytesRead = 0;
+            try
+            {
+                bytesRead = stream.Read(buffer, 0, buffer.Length);
+            }
+            // 3. Catch the IOException that occurs when the ReadTimeout expires
+            catch (System.IO.IOException ex) when (ex.InnerException is System.Net.Sockets.SocketException socketEx && socketEx.SocketErrorCode == System.Net.Sockets.SocketError.TimedOut)
+            {
+                // Handle the specific timeout error
+                Console.WriteLine("Read timeout expired. Server did not respond in time.");
+                weightData = "stop";
+                return [numberData, weightData, judgeData, mentalJudgeData];
+            }
+            catch (Exception ex)
+            {
+                // Handle other connection errors (e.g., connection reset, network failure)
+                Console.WriteLine($"An error occurred during read: {ex.Message}");
+                weightData = "stop";
+                return [numberData, weightData, judgeData, mentalJudgeData];
+            }
+
+            // Show raw buffer as hex (for debugging)
+            string bytesAsString = BitConverter.ToString(buffer, 0, bytesRead).Replace("-", " ");
+            Console.WriteLine($"Buffer as hex: {bytesAsString}");
+            Console.WriteLine($"Received {bytesRead} bytes from server.");
+
+           
+
             // Check for disconnection
             if (bytesRead == 0)
             {
                 Console.WriteLine("No data received, closing connection.");
+                Console.WriteLine("Something wrong with LAN or Server");
                 weightData =  "stop";
+                return [numberData, weightData, judgeData, mentalJudgeData];
             }
 
             // Trim STX (0x02) and ETX (0x03) and get clean data bytes
@@ -410,8 +438,8 @@ namespace TCP_IP_2_Modbus_TCP_Console
             string response = Encoding.UTF8.GetString(cleanData);
             string[] responseArray = response.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).ToArray();
 
-            Console.WriteLine("");
             Console.WriteLine($"{serverIP} response: " + response);
+
             for (int i = 0; i < responseArray.Length; i++)
             {
                 Console.WriteLine($"Index {i}: {responseArray[i]}");
@@ -497,7 +525,7 @@ namespace TCP_IP_2_Modbus_TCP_Console
             int offsetAddress = connection_num - 1;
             if (short.TryParse(number, out short sequenceNumber))
             {
-                RegisterDataToHoldingModbusServer(modbusServer, sequenceNumber, ADDRESS_PER_CONNECTION * offsetAddress + 2);
+                RegisterDataToHoldingModbusServer(modbusServer, (short) (sequenceNumber%32767), ADDRESS_PER_CONNECTION * offsetAddress + 2);
                 Console.WriteLine($"Registered sequence number {sequenceNumber} at Modbus address {ADDRESS_PER_CONNECTION * offsetAddress + 2}");
             }
             else
